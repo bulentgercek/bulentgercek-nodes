@@ -1,0 +1,13 @@
+[project]
+name = "bulentgercek-nodes"
+description = "Text and list utility nodes for prompt building"
+version = "1.0.0"
+license = { file = "LICENSE" }
+dependencies = []
+
+[project.urls]
+Repository = "https://github.com/bulentgercek/bulentgercek-nodes"
+
+[tool.comfy]
+PublisherId = "bulentgercek"
+DisplayName = "Bulent Gercek Nodes"
