@@ -6,9 +6,13 @@ from .list_pick import (
     NODE_CLASS_MAPPINGS as _lp_classes,
     NODE_DISPLAY_NAME_MAPPINGS as _lp_names,
 )
+from .prompt_builder import (
+    NODE_CLASS_MAPPINGS as _pb_classes,
+    NODE_DISPLAY_NAME_MAPPINGS as _pb_names,
+)
 
-NODE_CLASS_MAPPINGS = {**_slc_classes, **_lp_classes}
-NODE_DISPLAY_NAME_MAPPINGS = {**_slc_names, **_lp_names}
+NODE_CLASS_MAPPINGS = {**_slc_classes, **_lp_classes, **_pb_classes}
+NODE_DISPLAY_NAME_MAPPINGS = {**_slc_names, **_lp_names, **_pb_names}
 
 WEB_DIRECTORY = "./web"
 

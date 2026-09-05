@@ -1,7 +1,12 @@
 [project]
 name = "bulentgercek-nodes"
-description = "Text and list utility nodes for prompt building"
-version = "1.0.0"
+description = """\
+Text and list utility nodes for building and iterating prompts. All nodes live under the bulentgercek/text category.
+
+- Prompt Builder - assemble a prompt from several named categories (Camera, Pose, Clothing, ...) edited in a pop-up modal instead of on the graph. Each category is a line list with its own mode (fixed / increment / decrement / randomize), start index and enabled toggle; enabled categories are joined with a configurable delimiter into the "all" output, and every category also gets its own STRING output that wires can follow across renames and reordering. The modal has drag-to-reorder, per-card auto-fit, JSON export/import and browser-wide layout settings.
+- List Pick - pick one line from a multiline list by index, with fixed / increment / decrement / randomize control and server-side per-node state that resets on each Queue. Adds an on-node line-number gutter that previews the next pick and marks the one actually used.
+- String Line Count - count the lines in a string, optionally skipping blank lines."""
+version = "1.1.0"
 license = { file = "LICENSE" }
 dependencies = []
 
