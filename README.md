@@ -1,6 +1,12 @@
 # bulentgercek-nodes
 
+![List Pick](bulentgercek-nodes-screenshot.png)
+
 Custom nodes for ComfyUI. All nodes live under the `bulentgercek/text` category.
+
+## Install
+
+ComfyUI Manager, or clone into `ComfyUI/custom_nodes/`.
 
 ## Nodes
 
@@ -60,3 +66,7 @@ Inputs:
 Outputs:
 
 - `count` (INT): the number of lines.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
