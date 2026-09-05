@@ -1,6 +1,6 @@
 class StringLineCount:
     @classmethod
-    def INPUT_TYPES(s):
+    def INPUT_TYPES(cls):
         return {
             "required": {
                 "text": ("STRING", {"forceInput": True, "multiline": True}),
@@ -12,6 +12,7 @@ class StringLineCount:
     RETURN_NAMES = ("count",)
     FUNCTION = "count"
     CATEGORY = "bulentgercek/text"
+    DESCRIPTION = "Counts the lines in a string (optionally skipping blank lines)."
 
     def count(self, text, skip_empty):
         lines = text.splitlines()

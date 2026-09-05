@@ -1,7 +1,5 @@
 # bulentgercek-nodes
 
-![List Pick](bulentgercek-nodes-screenshot.png)
-
 Custom nodes for ComfyUI. All nodes live under the `bulentgercek/text` category.
 
 ## Install
@@ -11,6 +9,8 @@ ComfyUI Manager, or clone into `ComfyUI/custom_nodes/`.
 ## Nodes
 
 ### List Pick
+
+![List Pick](ss_list_pick.png)
 
 Picks one line out of a multiline string list and returns it as a string, together with the index that was picked and the total line count.
 
@@ -55,6 +55,8 @@ Companion frontend (`web/list_pick.js`) adds:
 Server route: `POST /bulentgercek/list_pick/reset` — accepts `{"ids": [<node_id>, ...]}` and clears the stored state for those node ids (or all state if no ids are given). Called by the frontend hook above; not meant to be called by hand.
 
 ### String Line Count
+
+![String Line Count](ss_string_line_count.png)
 
 Counts the lines in a string.
 
