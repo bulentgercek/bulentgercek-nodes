@@ -1,10 +1,10 @@
-"""Prompt Builder cekirdegi — saf Python, ComfyUI'siz.
+"""Prompt Builder core. Pure Python, no ComfyUI imports.
 
-Kategori JSON dizisini alir, her kategoriden `picker.resolve_index` ile bir satir
-secer, `enabled` olan ve bos olmayanlari `delimiter` ile birlestirir.
+Takes the category JSON array, picks one line per category through
+`picker.resolve_index`, and joins the enabled, non-empty ones with the delimiter.
 
-Kategori sirasi = dizideki sira. Isimlerin birlestirmeye etkisi yoktur.
-Per-kategori sayac anahtari "unique_id:kategori_id" — sira degil, id bazli.
+Category order is array order; names never affect the result. Per-category counters
+are keyed "unique_id:category_id" — by id, not by position.
 """
 
 import json
@@ -13,8 +13,12 @@ from . import picker
 
 
 def parse_categories(raw):
-    """Gizli JSON widget'inin string'ini kategori listesine cevirir.
-    Bozuk/eksik veri -> bos liste (node patlamaz)."""
+    """Turn the hidden JSON widget's string into a list of categories.
+
+    Malformed or missing data yields an empty list rather than an error.
+    """
+    # A workflow can arrive with a half-written or hand-edited widget value. The node
+    # stays loadable in that case; an empty list simply produces empty outputs.
     try:
         cats = json.loads(raw) if raw else []
     except Exception:
@@ -23,17 +27,17 @@ def parse_categories(raw):
 
 
 def build_prompt(categories, delimiter, unique_id, state):
-    """categories : parse edilmis liste (dict'ler).
-    state       : picker._STATE gibi bir dict; yerinde guncellenir.
-    Donen       : (final_str, ui_cats, cat_values)
-                  ui_cats    : her kategori icin {id, index, count} (dizi sirasi)
-                  cat_values : her kategorinin secili satiri (dizi sirasi, strip'li)
+    """Pick one line per category and join the enabled ones.
 
-    `enabled` YALNIZ `all` (birlesmis) ciktisina katilmayi kontrol eder. Her
-    kategorinin kendi ciktisi (cat_values) ve sayaci `enabled`'dan bagimsizdir —
-    kategoriyi All'dan cikarip ayri porttan kullanmak mumkun olsun diye.
-    Bos liste -> "" (o kategori icin), sayac ilerlemez.
+    categories : parsed list of dicts.
+    state      : a dict like picker._STATE; updated in place.
+    Returns    : (final_str, ui_cats, cat_values)
+                 ui_cats    : {id, index, count} per category, in array order
+                 cat_values : each category's picked line, in array order, stripped
     """
+    # `enabled` only controls whether a category joins the combined output. Its own
+    # output and its counter keep running, so a category can be routed on its own
+    # while staying out of `all`.
     parts = []
     ui_cats = []
     cat_values = []
@@ -48,6 +52,8 @@ def build_prompt(categories, delimiter, unique_id, state):
         lines = picker.split_lines(c.get("lines", ""), skip_empty=True)
         count = len(lines)
 
+        # An empty category emits "" and leaves its counter untouched, so adding lines
+        # later starts the walk from start_index instead of a stale position.
         if count == 0:
             ui_cats.append({"id": cid, "index": -1, "count": 0})
             cat_values.append("")
@@ -63,6 +69,8 @@ def build_prompt(categories, delimiter, unique_id, state):
             start_index = 0
         lo = max(0, min(start_index, count - 1))
 
+        # Keying by category id keeps counters attached to the category itself, so
+        # reordering or renaming in the modal never swaps two walks around.
         key = "%s:%s" % (unique_id, cid)
         index, st = picker.resolve_index(mode, state.get(key), lo, count)
         state[key] = st

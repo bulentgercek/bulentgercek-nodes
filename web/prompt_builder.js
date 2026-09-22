@@ -1,3 +1,10 @@
+/* Prompt Builder — node face.
+ *
+ * Holds the button that opens the editor modal, the Last Prompt preview, and the
+ * output slots that follow the category list. The categories themselves live in a
+ * hidden widget and are edited in pb_modal.js; the picking happens on the server.
+ */
+
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
 import { splitLines } from "./lib/text.js";
@@ -10,9 +17,9 @@ const DELIM = "delimiter";
 const CATS = "categories";
 const NODE_PAD = 10;
 const MODES = ["fixed", "increment", "decrement", "randomize"];
-const MAX_CAT_OUT = 32; // prompt_builder.py MAX_CAT_OUT ile ayni olmali
+const MAX_CAT_OUT = 32; // must match MAX_CAT_OUT in prompt_builder.py
 
-/* ---------- yardimcilar ---------- */
+/* ---------- helpers ---------- */
 
 function parseCats(raw) {
     try {
@@ -29,12 +36,12 @@ function clampInt(v, lo, hi) {
     return Math.max(lo, Math.min(n, hi));
 }
 
-// backend'le ayni: bos satirlar elenir, deger sonda trim'lenir
+// Same rule as the backend: blank lines drop out, the value is trimmed at the end.
 function activeLines(raw) {
     return splitLines(raw ?? "").filter((l) => l.trim() !== "");
 }
 
-// Last Prompt rozetleri — gutter sarisi (#e2b04a).
+// Last Prompt badges, in the gutter's yellow (#e2b04a).
 const BADGE_COLOR = "#e2b04a";
 const MODE_ABBR = { fixed: "Fixd", increment: "Incr", decrement: "Decr", randomize: "Rand" };
 
@@ -64,9 +71,9 @@ function badgeEl(text) {
 app.registerExtension({
     name: "bulentgercek.prompt_builder",
 
-    // Backend RETURN_TYPES 33 STRING (all + kategori basina 1). Kutuphane
-    // onizlemesi ve yeni node SADECE "all" ile baslasin; kategori slotlari
-    // syncOutputs ile eklenir. Aksi halde node "carsaf gibi" 33 slotla gelir.
+    // The backend declares 33 STRING outputs (all + one per category). The library
+    // preview and a freshly added node must show ONLY "all"; the category slots are
+    // added by syncOutputs. Without this the node arrives as a wall of 33 slots.
     beforeRegisterNodeDef(nodeType, nodeData) {
         if (nodeData?.name !== NODE) return;
         const trim = (k, v) => { if (Array.isArray(nodeData[k])) nodeData[k] = v; };
@@ -77,14 +84,14 @@ app.registerExtension({
     },
 
     async setup() {
+        // Global hooks, installed once regardless of how many nodes exist.
         if (app.__pbQueueHooked) return;
         app.__pbQueueHooked = true;
 
         const origQueuePrompt = app.queuePrompt.bind(app);
-        // Not: origQueuePrompt'tan once `await` KULLANMA — araya giren gecikme
-        // "'execution_start' fired before prompt was made" uyarisini tetikliyor.
-        // Reset'i fire-and-forget gonder; backend route'u onemsiz, prompt worker'a
-        // dusmeden cok once varir.
+        // Do NOT await before calling origQueuePrompt: an inserted delay triggers
+        // ComfyUI's "'execution_start' fired before prompt was made" warning. The reset
+        // is fire-and-forget and still lands long before the prompt reaches the worker.
         app.queuePrompt = (...args) => {
             const nodes = (app.graph?._nodes || []).filter((n) => n.comfyClass === NODE);
             if (nodes.length) {
@@ -98,7 +105,8 @@ app.registerExtension({
             return origQueuePrompt(...args);
         };
 
-        // Queue tamamen bosalinca onizlemeyi gercek sonuc yerine tahmine dondur.
+        // Once the queue drains, the preview goes back to predicting instead of showing
+        // the last realised result.
         let lastQueueRemaining = 0;
         api.addEventListener("status", (e) => {
             const remaining = e?.detail?.exec_info?.queue_remaining ?? 0;
@@ -119,8 +127,8 @@ app.registerExtension({
         const catsW = find(CATS);
         if (!catsW) return;
 
-        // delimiter + categories gizli: serialize kalir (workflow'a yazilir),
-        // ekranda gorunmez. Ikisi de modal / Settings uzerinden duzenlenir.
+        // delimiter and categories are hidden but still serialised, so they travel with
+        // the workflow while the node stays small. Both are edited in the modal.
         const hideWidget = (w) => {
             if (!w || w.__pbHidden) return;
             w.__pbHidden = true;
@@ -132,13 +140,14 @@ app.registerExtension({
         hideWidget(catsW);
         hideWidget(delimW);
 
-        let previewMode = true;   // true: tahmin, false: gercek run sonucu
-        const lastReal = {};      // cat.id -> son gerceklesen (trim'li) deger
-        const lastIndex = {};     // cat.id -> son gerceklesen index
-        let modalRefresh = null;  // modal acikken run sonrasi kartlari tazeler
+        let previewMode = true;   // true: prediction, false: result of a real run
+        const lastReal = {};      // cat.id -> last realised (trimmed) value
+        const lastIndex = {};     // cat.id -> last realised index
+        let modalRefresh = null;  // refreshes the open modal's cards after a run
 
-        // bir kategorinin aktif (vurgulanacak) index'i — modal gutter'i icin.
-        // randomize: kullaniciya son kalinan yeri GOSTERME (hep isaretsiz).
+        // Which index to highlight for a category, used by the modal's gutter.
+        // randomize deliberately shows nothing: the stored position is not where the
+        // next run will land, so pointing at it would be a lie.
         const activeIndexFor = (cat) => {
             const cid = String(cat.id);
             const mode = MODES.includes(cat.mode) ? cat.mode : "fixed";
@@ -164,9 +173,9 @@ app.registerExtension({
             registerRefresh: (fn) => { modalRefresh = fn; },
         });
 
-        // "Open Prompt Builder" — DOM buton (canvas widget'i cok ince, tiklamasi zor).
-        // Sabit yukseklik: getMaxHeight yoksa bosalan alani doldurur ve Last Prompt'u
-        // asagi iterdi.
+        // "Open Prompt Builder" is a DOM button: the canvas widget is too thin to hit
+        // comfortably. Its height is pinned, because without getMaxHeight it would
+        // absorb the freed space and push Last Prompt down.
         const OPEN_BG = "#2b2b2b";
         const OPEN_BG_ACTIVE = "#4d4d4d";
         const openWrap = document.createElement("div");
@@ -182,7 +191,8 @@ app.registerExtension({
             font: "12px Arial, sans-serif", cursor: "pointer",
             transition: "background 0.08s",
         });
-        // basili tutuldukca acik gri (mouse down; click degil)
+        // Lightens while held down (pointer, not click), so the press is visible even
+        // though the modal takes a moment to appear.
         const openRelease = () => { openBtn.style.background = OPEN_BG; };
         openBtn.addEventListener("pointerdown", (e) => {
             e.stopPropagation();
@@ -217,14 +227,16 @@ app.registerExtension({
             node.setDirtyCanvas?.(true, true);
         };
 
-        // Output slot'larini kategorilere esitle: slot 0 = "All" (birlesmis prompt,
-        // her zaman), sonrasi kategori basina bir STRING. Etiket = category.name
-        // (bossa "cat N"). Kablolar kategori id'sine gore korunur; reorder / rename
-        // / ekle / sil hepsinde dogru kalir. Yalniz yapisal degisiklikte calisir.
+        // Keeps the output slots in step with the categories: slot 0 is "All" (the
+        // joined prompt, always present), then one STRING per category labelled with
+        // its name, or "cat N" when the name is blank. Wires are preserved by category
+        // id, so reordering, renaming, adding and deleting all keep their connections.
         const syncOutputs = () => {
             const cats = parseCats(catsW.value);
             const n = Math.min(cats.length, MAX_CAT_OUT);
 
+            // A signature of ids and names: the whole rebuild only runs when the output
+            // structure actually changed, not on every keystroke in a list.
             const sig = n + "|" + cats.slice(0, n)
                 .map((c) => (c && c.id != null ? c.id : "") + " " +
                     ((c && c.name != null ? String(c.name) : "").trim()))
@@ -235,8 +247,8 @@ app.registerExtension({
             node.outputs = node.outputs || [];
             const graph = node.graph;
 
-            // slot -> kategori id haritasi yoksa / bayatsa pozisyonel tureti
-            // (workflow yuklendiginde outputs configure ile geri gelir ama harita gelmez)
+            // Rebuild the slot -> category id map when it is missing or stale: loading a
+            // workflow restores the outputs through configure, but not our map.
             if (!Array.isArray(node.__pbSlotIds) ||
                 node.__pbSlotIds.length !== node.outputs.length) {
                 node.__pbSlotIds = [null];
@@ -245,7 +257,7 @@ app.registerExtension({
                 }
             }
 
-            // 1) mevcut kategori kablolarini id'ye gore snapshot'la
+            // 1) snapshot the existing category wires, keyed by category id
             const saved = {}; // id -> [{nodeId, slot}]
             for (let i = 1; i < node.outputs.length; i++) {
                 const id = node.__pbSlotIds[i];
@@ -258,17 +270,17 @@ app.registerExtension({
                 }
             }
 
-            // 2) slot 0 = All (linkleri korunur)
+            // 2) slot 0 = All; its links are left untouched
             if (!node.outputs.length) node.addOutput("All", "STRING");
             node.outputs[0].name = "All";
             node.outputs[0].label = "All";
             node.outputs[0].type = "STRING";
 
-            // 3) tum kategori slot'larini kaldir, n tane taze ekle (bayat link kalmasin)
+            // 3) drop every category slot and add n fresh ones, so no stale link survives
             while (node.outputs.length > 1) node.removeOutput(node.outputs.length - 1);
             for (let k = 0; k < n; k++) node.addOutput("", "STRING");
 
-            // 4) etiketle + id haritasini yenile
+            // 4) label them and rebuild the id map
             const slotIds = [null];
             for (let k = 0; k < n; k++) {
                 const c = cats[k] || {};
@@ -281,7 +293,8 @@ app.registerExtension({
             }
             node.__pbSlotIds = slotIds;
 
-            // 5) kablolari kategori id'sine gore geri bagla
+            // 5) reconnect the wires by category id; a category that is gone loses its
+            // wire, which is the one case where dropping it is correct
             for (const id in saved) {
                 const k = slotIds.indexOf(id);
                 if (k < 1) continue;
@@ -294,8 +307,9 @@ app.registerExtension({
             fitSize();
         };
 
-        // Last Prompt: her katilan kategorinin basina rozet [Mode][index] + metin,
-        // delimiter ile birlesir. realById verilirse gercek run sonucu, yoksa tahmin.
+        // Last Prompt: each participating category contributes three badges followed by
+        // its text, joined with the delimiter. With realById it shows the run's actual
+        // result; without it, the prediction.
         const renderPreview = (realById, plainOverride) => {
             const cats = parseCats(catsW.value);
             const delim = delimW ? String(delimW.value ?? "") : ". ";
@@ -318,6 +332,8 @@ app.registerExtension({
                     if (idx < 0 || idx >= lines.length) continue;
                     val = lines[idx].trim();
                 } else if (mode === "randomize") {
+                    // Nothing can be predicted here, so the last realised value is shown
+                    // with a "?" index until a run replaces it.
                     idx = cid in lastIndex ? lastIndex[cid] : null;
                     val = cid in lastReal
                         ? lastReal[cid]
@@ -328,12 +344,14 @@ app.registerExtension({
                 }
                 if (val === "") continue;
                 if (out.length) out.push(document.createTextNode(delim));
-                out.push(badgeEl(nameTag));                       // Kategori
-                out.push(badgeEl(MODE_ABBR[mode] || "Fixd"));     // Mode
-                out.push(badgeEl(idx == null ? "?" : String(idx))); // Index
+                out.push(badgeEl(nameTag));                       // category
+                out.push(badgeEl(MODE_ABBR[mode] || "Fixd"));     // mode
+                out.push(badgeEl(idx == null ? "?" : String(idx))); // index
                 out.push(document.createTextNode(val));
                 vals.push(val);
             }
+            // The plain string is tracked separately so the copy button yields the prompt
+            // without badges; after a run the server's own string is authoritative.
             const plain = typeof plainOverride === "string" ? plainOverride : vals.join(delim);
             preview.setSegments(out.length ? out : [document.createTextNode("")], plain);
             node.setDirtyCanvas?.(true, true);
@@ -349,8 +367,8 @@ app.registerExtension({
             syncPreview();
         };
 
-        // delimiter / categories degisince onizlemeyi (ve categories'te output
-        // slot'larini) tazele
+        // Refresh the preview when delimiter or categories change, and rebuild the
+        // output slots when it was the categories.
         for (const w of [delimW, catsW]) {
             if (!w) continue;
             const cb = w.callback;
@@ -364,12 +382,14 @@ app.registerExtension({
             };
         }
 
-        let configured = false; // workflow'dan yuklendi mi (yeni node degil)
+        let configured = false; // true once loaded from a workflow, i.e. not a new node
 
         const onConf = node.onConfigure;
         node.onConfigure = function (...a) {
             configured = true;
             const r = onConf?.apply(this, a);
+            // Deferred by one tick: ComfyUI restores widget values after configure, and
+            // re-hiding is needed because that restore can undo it.
             setTimeout(() => {
                 hideWidget(catsW);
                 hideWidget(delimW);
@@ -386,6 +406,8 @@ app.registerExtension({
             const r = onExec?.apply(this, arguments);
             const d = message?.prompt_builder?.[0];
             if (d) {
+                // The server reports per category by id, so the values survive a reorder
+                // between queueing and the result arriving.
                 previewMode = false;
                 const byId = {};
                 const byIdUc = {};
@@ -410,13 +432,14 @@ app.registerExtension({
             return r;
         };
 
-        // ilk cizimden once slotlari kategorilere gore ayarla
+        // Slots have to match the categories before the first draw.
         syncOutputs();
 
         setTimeout(() => {
             hideWidget(catsW);
             hideWidget(delimW);
-            // yeni node (workflow'dan yuklenmedi) → delimiter'i global tohumdan baslat
+            // A new node (not loaded from a workflow) starts from the browser-wide
+            // delimiter, so the user's habit carries over to every node they add.
             if (!configured && delimW && delimW.value === ". ") {
                 const seed = loadSettings().defaultDelimiter;
                 if (typeof seed === "string" && seed !== ". ") setDelimiter(seed);

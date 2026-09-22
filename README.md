@@ -2,6 +2,8 @@
 
 Custom nodes for ComfyUI. All nodes live under the `bulentgercek/text` category.
 
+Created by Bulent Gercek
+
 ## Install
 
 ComfyUI Manager, or clone into `ComfyUI/custom_nodes/`.
@@ -118,6 +120,13 @@ Outputs:
 
 - `count` (INT): the number of lines.
 
+## Support
+
+If these saved you an afternoon: [GitHub Sponsors](https://github.com/sponsors/bulentgercek)
+
 ## License
 
-MIT — see [LICENSE](LICENSE).
+Apache License 2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE). Modified copies
+must retain the original copyright notice and mark what was changed.
+
+Versions 1.0.0 and 1.1.0 were released under MIT.

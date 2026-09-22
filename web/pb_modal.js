@@ -1,17 +1,17 @@
-/* Prompt Builder modal — kategori editoru.
+/* Prompt Builder modal — the category editor.
  *
- * document.body'ye eklenen kendi overlay'i (app.extensionManager.dialog yalniz
- * tek satir prompt/confirm sunuyor, cok satirli editore yetmez). Kategori
- * kartlari alt alta (ya da genis modda 2 kolon), dizideki sirayla. Her
- * degisiklikte gizli `categories` JSON widget'i guncellenir ve node'un
- * `Last Prompt` onizlemesi tazelenir.
+ * Its own overlay appended to document.body: app.extensionManager.dialog only
+ * offers single-line prompt/confirm dialogs, which is nowhere near enough for a
+ * multi-line editor. Category cards are laid out in the array's order, in one or
+ * more columns. Every change writes the hidden `categories` JSON widget and
+ * refreshes the node's `Last Prompt` preview.
  */
 
 import { attachGutter } from "./lib/gutter.js";
 import { splitLines } from "./lib/text.js";
 import { loadSettings, saveSettings, parseCategoryNames, WINDOW_CONFIGS, UI_SIZES, LIST_SIZES, COMPACT_OPTS } from "./pb_settings.js";
 
-const COMPACT_MAX = "16em"; // Compact modda kart textarea ust yuksekligi (font'a gore)
+const COMPACT_MAX = "16em"; // Compact mode cap for a card textarea, in em so it follows the font
 
 const MODES = ["fixed", "increment", "decrement", "randomize"];
 
@@ -70,7 +70,7 @@ async function copyText(text) {
         Object.assign(t.style, { position: "fixed", top: "0", left: "0", opacity: "0" });
         document.body.appendChild(t);
         t.select();
-        try { document.execCommand("copy"); } catch (_) { /* yut */ }
+        try { document.execCommand("copy"); } catch (_) { /* ignore */ }
         t.remove();
     }
 }
@@ -89,8 +89,9 @@ export function openPromptBuilderModal(node, ctx) {
             start_index: Number.isFinite(+c.start_index) ? Math.max(0, Math.floor(+c.start_index)) : 0,
             lines: typeof c.lines === "string" ? c.lines : "",
         };
-        // h: textarea yuksekligi (px), fit: otomatik buyume toggle'i acik mi
-        // — ikisi de UI verisi, backend yok sayar
+        // h is the textarea height in px and fit is the auto-grow toggle. Both are
+        // UI-only fields that the backend ignores, kept here so the layout survives a
+        // save and reload.
         if (Number.isFinite(+c.h) && +c.h > 0) w.h = Math.round(+c.h);
         if (c.fit === true) w.fit = true;
         return w;
@@ -107,11 +108,11 @@ export function openPromptBuilderModal(node, ctx) {
     let currentUi = UI_SIZES[settings.uiSize] ? settings.uiSize : "small";
     let currentList = LIST_SIZES[settings.listFontSize] ? settings.listFontSize : "small";
     let compact = settings.compactRows === "on";
-    let fitMaster = settings.fitTextMaster === "on"; // toplu Fit Text kilidi
-    if (fitMaster) for (const c of working) c.fit = true; // ON iken herkes fit
+    let fitMaster = settings.fitTextMaster === "on"; // bulk Fit Text lock
+    if (fitMaster) for (const c of working) c.fit = true; // ON means every card fits
 
     const gutters = [];
-    let dragState = null;   // suru-birak durumu
+    let dragState = null;   // drag-and-drop state
     let dragIndicator = null;
 
     const commit = () => {
@@ -127,7 +128,7 @@ export function openPromptBuilderModal(node, ctx) {
         for (const g of gutters.splice(0)) g?.destroy?.();
     };
 
-    /* ---------- overlay (yalniz backdrop; panel tam ekran) ---------- */
+    /* ---------- overlay (backdrop only; the panel itself is full screen) ---------- */
     const overlay = el("div", {
         position: "fixed", inset: "0", zIndex: "10000",
         background: "rgba(0,0,0,0.55)",
@@ -137,7 +138,7 @@ export function openPromptBuilderModal(node, ctx) {
     for (const ev of ["keydown", "keyup", "wheel", "pointerdown", "pointermove", "pointerup"]) {
         overlay.addEventListener(ev, (e) => e.stopPropagation());
     }
-    let activeSubClose = null; // acik alt-panel (Export/Import) varsa kapatici
+    let activeSubClose = null; // closer for an open sub-panel (Export/Import), if any
     const onKey = (e) => {
         if (e.key === "Escape") {
             e.stopPropagation();
@@ -146,7 +147,7 @@ export function openPromptBuilderModal(node, ctx) {
     };
     document.addEventListener("keydown", onKey, true);
 
-    // Panel tum ekrani kaplar; her kenardan esit bosluk (PB_MARGIN).
+    // The panel fills the screen with an even margin on every side.
     const M = "28px";
     const panel = el("div", {
         position: "fixed", top: M, right: M, bottom: M, left: M,
@@ -217,7 +218,7 @@ export function openPromptBuilderModal(node, ctx) {
     toolbar.appendChild(importBtn);
     panel.appendChild(toolbar);
 
-    /* ---------- alt-panel (Export / Import) ---------- */
+    /* ---------- sub-panel (Export / Import) ---------- */
     function openSubPanel(titleText, contentNode, actions) {
         const back = el("div", {
             position: "fixed", inset: "0", zIndex: "10002",
@@ -356,9 +357,9 @@ export function openPromptBuilderModal(node, ctx) {
         requestAnimationFrame(() => ta.focus());
     }
 
-    /* ---------- settings panel (acilir/kapanir) ---------- */
-    // Not: gorunurluk style.display ile yonetilir; inline display, `hidden`
-    // attribute'unun UA `display:none`'ini ezerdi. Kapali baslar.
+    /* ---------- settings panel (expands and collapses) ---------- */
+    // Visibility is driven through style.display: an inline display value would beat
+    // the user agent's `display:none` for the `hidden` attribute. Starts collapsed.
     const setBox = el("div", {
         padding: "12px 16px", borderBottom: "1px solid #3a3a3a", background: "#222",
         display: "none", flexDirection: "column", gap: "10px", flex: "0 0 auto",
@@ -396,8 +397,8 @@ export function openPromptBuilderModal(node, ctx) {
         settings = saveSettings({ defaultCategories: defCatsInp.value });
     });
 
-    // Tek alan, iki islev: bu node'un delimiter'ini yazar (workflow'a kaydedilir)
-    // VE ayni degeri yeni node'lar icin global varsayilan yapar.
+    // One field, two jobs: it writes this node's delimiter, which is saved with the
+    // workflow, AND stores the same value as the default for new nodes.
     const delimInp = mkField("Delimiter",
         "Joins the categories for this node, and becomes the default for new nodes.");
     delimInp.value = ctx.getDelimiter();
@@ -406,8 +407,8 @@ export function openPromptBuilderModal(node, ctx) {
         settings = saveSettings({ defaultDelimiter: delimInp.value });
     });
 
-    // Metin alanlari (yukarida, tam genislik) DISINDAKI segmented ayarlar burada;
-    // yer varken yan yana akar.
+    // Everything except the full-width text fields above lives in this grid, so the
+    // segmented controls flow side by side while there is room.
     const segGrid = el("div", {
         display: "grid",
         gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
@@ -415,7 +416,7 @@ export function openPromptBuilderModal(node, ctx) {
     });
     setBox.appendChild(segGrid);
 
-    // labelText + secenek butonlari; secili olan vurgulu. { paint } dondurur.
+    // A label plus option buttons, with the selected one highlighted; returns { paint }.
     const mkSegmented = (labelText, entries, getCurrent, onPick) => {
         const row = el("div", { display: "flex", flexDirection: "column", gap: "4px" });
         row.appendChild(el("div", { fontSize: "0.85em", color: "#9a9a9a" },
@@ -462,9 +463,9 @@ export function openPromptBuilderModal(node, ctx) {
         settings = saveSettings({ compactRows: key });
         render();
     });
-    // Toplu setter + kilit: On → TUM cat.fit=true & per-kart butonlar kilitli,
-    // Off → TUM cat.fit=false & butonlar acilir. Eski per-kategori state'i
-    // hatirlamaya calismaz. Kalici (fitTextMaster).
+    // Bulk setter and lock. On: every cat.fit becomes true and the per-card buttons
+    // lock. Off: every cat.fit becomes false and the buttons unlock. It deliberately
+    // does not try to restore what each card had before.
     const fitAllSeg = mkSegmented(
         "Toggle Fit Text All",
         COMPACT_OPTS,
@@ -480,7 +481,7 @@ export function openPromptBuilderModal(node, ctx) {
 
     panel.appendChild(setBox);
 
-    /* ---------- cards (panelin dibine kadar; ayri footer yok) ---------- */
+    /* ---------- cards (they run to the bottom; there is no separate footer) ---------- */
     const cardsBox = el("div", {
         overflow: "auto", padding: "12px 16px", flex: "1 1 auto",
         display: "grid", gap: "12px", alignItems: "start",
@@ -488,9 +489,9 @@ export function openPromptBuilderModal(node, ctx) {
     });
     panel.appendChild(cardsBox);
 
-    /* ---------- window config: yalniz kolon sayisi ---------- */
-    // Sabit kolon modlari (1..4) dar ekranda sigan kadar kolona duser (float);
-    // "auto" ise genislige gore kaca sigarsa.
+    /* ---------- window config: column count only ---------- */
+    // The fixed modes (1..4) fall back to however many columns actually fit on a narrow
+    // window; "auto" simply fits as many as the width allows.
     const MIN_COL = 380;
     let lastGrid = "";
     function applyWindowConfig() {
@@ -511,8 +512,8 @@ export function openPromptBuilderModal(node, ctx) {
         updateAxis();
     }
 
-    // Gercek kolon sayisi (computed grid track sayisi). Tek kolonda reorder
-    // oklari ↑/↓ ("Move up/down"), cok kolonda ←/→ ("Move left/right").
+    // The real column count, read back from the computed grid tracks. With one column
+    // the reorder arrows read ↑/↓ ("Move up/down"), with more they read ←/→.
     let lastAxisHoriz = null;
     function columnsNow() {
         const t = getComputedStyle(cardsBox).gridTemplateColumns;
@@ -525,19 +526,20 @@ export function openPromptBuilderModal(node, ctx) {
         lastAxisHoriz = horiz;
         for (const card of cardsBox.children) card.__setAxis?.(horiz);
     }
-    // UI Size: panel taban font-size'i — cocuklar em/inherit ile takip eder
+    // UI Size sets the panel's base font-size; children follow through em/inherit.
     function applyUiSize() {
         panel.style.fontSize = (UI_SIZES[currentUi] || UI_SIZES.small).px + "px";
     }
-    // List Text Size: kart textarea/gutter/debug — yeniden kurulmasi gerekir
+    // List Text Size touches the card textarea, gutter and readout, which have to be
+    // rebuilt rather than restyled.
     function applyListSize() { render(); }
     let autoRefreshRaf = 0;
     const ro = new ResizeObserver(() => {
         if ((WINDOW_CONFIGS[currentCfg] || {}).mode !== "auto") {
             applyWindowConfig();
         } else if (!autoRefreshRaf) {
-            // "auto" modda kolon sayisi CSS ile degisir → kart genisligi degisir →
-            // fit-aktif kutular yeni genislige gore yeniden fit edilmeli
+            // In "auto" mode CSS changes the column count on its own, which changes the
+            // card width, so every fit-enabled box has to be re-fitted to it.
             autoRefreshRaf = requestAnimationFrame(() => { autoRefreshRaf = 0; refresh(); });
         }
         updateAxis();
@@ -548,7 +550,7 @@ export function openPromptBuilderModal(node, ctx) {
     function render() {
         destroyGutters();
         cardsBox.textContent = "";
-        if (fitAllSeg) fitAllSeg.paint(); // "Toggle Fit Text All" highlight'i senkron tut
+        if (fitAllSeg) fitAllSeg.paint(); // keep the "Toggle Fit Text All" highlight in sync
         if (!working.length) {
             cardsBox.appendChild(el("div",
                 { color: "#888", padding: "24px", textAlign: "center" },
@@ -556,15 +558,15 @@ export function openPromptBuilderModal(node, ctx) {
             return;
         }
         working.forEach((cat, i) => cardsBox.appendChild(buildCard(cat, i)));
-        // Grid kolonlari / scrollbar tam oturduktan sonra fit-aktif kutulari
-        // yeniden fit et. Tek rAF (buildCard icindeki) Settings acik / drag-drop /
-        // Toggle Fit Text All sonrasi erken kaliyordu.
+        // Re-fit once the grid columns and the scrollbar have settled. A single
+        // animation frame (the one inside buildCard) fired too early after opening
+        // Settings, after a drag-and-drop, and after Toggle Fit Text All.
         requestAnimationFrame(() => requestAnimationFrame(refresh));
     }
 
     function buildCard(cat, index) {
         const lpx = (LIST_SIZES[currentList] || LIST_SIZES.small).px;
-        const taMinH = Math.round(90 * lpx / 12); // gorunen satir sayisi ~sabit kalsin
+        const taMinH = Math.round(90 * lpx / 12); // keeps the visible line count roughly fixed
 
         const card = el("div", {
             border: "1px solid #3d3d3d", borderRadius: "8px",
@@ -599,7 +601,7 @@ export function openPromptBuilderModal(node, ctx) {
         down.addEventListener("click", () => move(index, +1));
         top.appendChild(down);
 
-        // reorder oklari layout eksenine gore (dikey ↑↓ / yatay ←→)
+        // The reorder arrows follow the layout axis: vertical ↑↓ or horizontal ←→.
         card.__setAxis = (horiz) => {
             up.textContent = horiz ? "←" : "↑";
             up.title = horiz ? "Move left" : "Move up";
@@ -629,8 +631,8 @@ export function openPromptBuilderModal(node, ctx) {
         top.appendChild(del);
         card.appendChild(top);
 
-        // fitOn = kartin Fit Text durumu (cat.fit). "Toggle Fit Text All" bunu
-        // toplu set eder (override degil). Compact Rows her seyi ezer.
+        // fitOn mirrors this card's Fit Text state (cat.fit). "Toggle Fit Text All" sets
+        // it in bulk rather than overriding it, while Compact Rows beats both.
         let fitOn = !!cat.fit;
         const isFitActive = () => !compact && fitOn;
 
@@ -638,7 +640,7 @@ export function openPromptBuilderModal(node, ctx) {
         const ta = el("textarea", {
             display: "block", width: "100%", minHeight: taMinH + "px", boxSizing: "border-box",
             height: cat.h ? cat.h + "px" : "",
-            // Compact: ust yukseklik + ic scroll — her zaman (master dahil ezer)
+            // Compact always wins: a capped height plus inner scrolling
             maxHeight: compact ? COMPACT_MAX : "",
             background: "#1b1b1b", color: "#d0d0d0",
             border: "1px solid #3a3a3a", borderRadius: "6px",
@@ -650,10 +652,10 @@ export function openPromptBuilderModal(node, ctx) {
         taWrap.appendChild(ta);
         card.appendChild(taWrap);
 
-        // manuel yukseklik degisikligini kategoriyle birlikte sakla.
-        // Ilk RO tetiklemesi referans yuksekligi belirler (kullanici degil);
-        // sadece sonraki gercek degisiklikler kaydedilir. Compact (cap) veya fit
-        // aktifken kayit yok (yukseklik otomatik/sinirli yonetiliyor).
+        // A height the user dragged is stored with the category. The observer's first
+        // firing only establishes the baseline — it is layout, not a user action — so
+        // just the later, real changes are saved. Nothing is stored while Compact or Fit
+        // is active, since the height is managed there.
         let baseH = null;
         let lastH = cat.h || 0;
         const hRo = new ResizeObserver(() => {
@@ -698,10 +700,11 @@ export function openPromptBuilderModal(node, ctx) {
         modeWrap.appendChild(modeSel);
         bottom.appendChild(modeWrap);
 
-        // Fit Text = per-kategori TOGGLE. Acikken yazarken bile icerige gore buyur;
-        // kapatinca o anki yukseklikte donar, elle boyutlandirmaya acilir.
-        // Compact modda anlamsiz: `disabled` ATTRIBUTE'u koyMA (tooltip gorunmez
-        // olur), silik goster + tiklamayi yok say.
+        // Fit Text is a per-category toggle: while on, the box grows with the content
+        // even as you type; switching it off freezes the current height and hands
+        // resizing back to the user. It is meaningless in Compact mode, where the button
+        // is dimmed and its clicks ignored — do NOT set the `disabled` attribute, as a
+        // disabled button shows no tooltip and the explanation would be lost.
         const fitBtn = el("button", btnStyle("mini"), { textContent: "Fit Text" });
         bottom.appendChild(fitBtn);
 
@@ -726,25 +729,25 @@ export function openPromptBuilderModal(node, ctx) {
         };
 
         // --- Fit Text toggle ---
-        const applyFit = () => {          // yuksekligi icerige gore ayarla + cat.h'yi yaz
+        const applyFit = () => {          // size to content and record it in cat.h
             ta.style.height = "auto";
-            const h = Math.round(ta.scrollHeight + 2); // +2: 1px border (border-box)
+            const h = Math.round(ta.scrollHeight + 2); // +2 covers the 1px border (border-box)
             ta.style.height = h + "px";
             cat.h = h;
             if (baseH === null) baseH = h;
-            lastH = h;                    // hRo tekrar tetiklenmesin
+            lastH = h;                    // stops the observer from storing this as a user resize
             scheduleCommit();
             g?.render();
         };
         const paintFit = () => {
-            if (compact) { // Compact EN USTTE
+            if (compact) { // Compact outranks everything
                 fitBtn.title = "Disabled on Compact Rows Mode";
                 Object.assign(fitBtn.style, {
                     background: "#232323", color: "#565656", borderColor: "#333", cursor: "default",
                 });
                 return;
             }
-            if (fitMaster) { // Toggle Fit Text All ON: kilitli, cok koyu mavi, silik yazi
+            if (fitMaster) { // Toggle Fit Text All is on: locked, dark blue, dim text
                 fitBtn.title = "Disabled on Toggle Fit Text All";
                 Object.assign(fitBtn.style, {
                     background: "#14335a", borderColor: "#2b5188",
@@ -762,14 +765,14 @@ export function openPromptBuilderModal(node, ctx) {
                 cursor: "pointer",
             });
         };
-        const setFit = (on) => {         // sadece compact OFF iken cagrilir
+        const setFit = (on) => {         // only ever called while compact is off
             fitOn = on;
             cat.fit = on;
             ta.style.resize = on ? "none" : "vertical";
             if (on) {
                 applyFit();
             } else {
-                // dondur: o anki gorunur yukseklikte sabitle
+                // Freeze at whatever height is on screen right now.
                 const h = Math.round(ta.getBoundingClientRect().height);
                 if (h > 0) { ta.style.height = h + "px"; cat.h = h; lastH = h; }
             }
@@ -777,18 +780,18 @@ export function openPromptBuilderModal(node, ctx) {
             commit();
         };
         fitBtn.addEventListener("click", () => {
-            if (compact || fitMaster) return; // kilitli
+            if (compact || fitMaster) return; // locked
             setFit(!fitOn);
         });
         paintFit();
-        if (isFitActive()) requestAnimationFrame(applyFit); // yuklemede uygula
+        if (isFitActive()) requestAnimationFrame(applyFit); // apply once on load
 
         ta.addEventListener("input", () => {
             cat.lines = ta.value;
             commit();
             scheduleRender();
             updateDbg();
-            if (isFitActive()) applyFit(); // fit aktifken canli buyume
+            if (isFitActive()) applyFit(); // live growth while fit is on
         });
         siIn.addEventListener("input", () => {
             let v = parseInt(siIn.value, 10);
@@ -807,7 +810,7 @@ export function openPromptBuilderModal(node, ctx) {
 
         requestAnimationFrame(() => { g?.render(); updateDbg(); });
         card.__refresh = () => {
-            // genislik/layout degisiminde fit-aktif kutuyu yeniden fit et
+            // Re-fit the box after a width or layout change; otherwise just redraw.
             if (isFitActive()) applyFit(); else g?.render();
             updateDbg();
         };
@@ -822,16 +825,17 @@ export function openPromptBuilderModal(node, ctx) {
         commit();
     }
 
-    /* ---------- suru-birak reorder (pointer events, sadece ⠿ tutamagi) ---------- */
+    /* ---------- drag-and-drop reorder (pointer events, the ⠿ grip only) ---------- */
 
     function startDrag(e, from, card, grip) {
         if (e.button !== 0 || dragState) return;
         e.preventDefault();
         e.stopPropagation();
-        try { grip.setPointerCapture(e.pointerId); } catch (_) { /* yut */ }
+        try { grip.setPointerCapture(e.pointerId); } catch (_) { /* ignore */ }
         dragState = { from, to: from, card, grip, pid: e.pointerId,
                       x0: e.clientX, y0: e.clientY, active: false };
-        // capture fazi: overlay'in bubble-phase stopPropagation'i bunlari yutmasin
+        // Capture phase, so the overlay's bubble-phase stopPropagation cannot swallow
+        // these before they arrive.
         window.addEventListener("pointermove", onDragMove, true);
         window.addEventListener("pointerup", endDrag, true);
         window.addEventListener("pointercancel", endDrag, true);
@@ -895,14 +899,14 @@ export function openPromptBuilderModal(node, ctx) {
         window.removeEventListener("pointerup", endDrag, true);
         window.removeEventListener("pointercancel", endDrag, true);
         if (!st) return;
-        try { st.grip.releasePointerCapture(st.pid); } catch (_) { /* yut */ }
+        try { st.grip.releasePointerCapture(st.pid); } catch (_) { /* ignore */ }
         st.grip.style.cursor = "grab";
         document.body.style.userSelect = "";
         if (!st.active) return;
         st.card.style.opacity = "";
 
         const { from, to } = st;
-        if (to === from || to === from + 1) return; // ayni yer
+        if (to === from || to === from + 1) return; // dropped where it already was
         const [item] = working.splice(from, 1);
         working.splice(to > from ? to - 1 : to, 0, item);
         render();
@@ -915,9 +919,10 @@ export function openPromptBuilderModal(node, ctx) {
 
     function close() {
         if (currentModal !== self) return;
-        if (activeSubClose) activeSubClose(); // acik Export/Import alt-paneli
+        if (activeSubClose) activeSubClose(); // an open Export/Import sub-panel
         if (commitRaf) { cancelAnimationFrame(commitRaf); commitRaf = 0; commit(); }
-        // devam eden surukleme varsa temizle (gosterge + window listener'lari)
+        // Clean up a drag that is still in progress: the indicator and the window
+        // listeners would otherwise outlive the modal.
         window.removeEventListener("pointermove", onDragMove, true);
         window.removeEventListener("pointerup", endDrag, true);
         window.removeEventListener("pointercancel", endDrag, true);
@@ -941,6 +946,6 @@ export function openPromptBuilderModal(node, ctx) {
     render();
     document.body.appendChild(overlay);
     updateAxis();
-    requestAnimationFrame(applyWindowConfig); // gercek genislikle kolon sayisini yeniden degerlendir
+    requestAnimationFrame(applyWindowConfig); // re-evaluate columns against the real width
     return self;
 }

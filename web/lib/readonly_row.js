@@ -1,11 +1,13 @@
-/* Salt okunur gosterge satiri.
+/* Read-only indicator row.
  *
- * ComfyUI (Vue) frontend'i tanimadigi widget tipini sessizce render etmez;
- * addWidget("text", ...) + disabled kutuyu cizer ama degeri basmaz. Calisan
- * tek yol node.addDOMWidget(...). Bu modul o desenin tek noktadan hali.
+ * ComfyUI's Vue frontend silently skips widget types it does not know, and
+ * addWidget("text", ...) + disabled draws a box without ever showing the value.
+ * node.addDOMWidget is the only thing that works, so the pattern lives here once.
  */
 
 export const ROW_H = 26;
+// Slot height leaves room below the row: sizing the widget exactly ROW_H tall made
+// the last row spill past the node's bottom edge.
 export const ROW_SLOT = ROW_H + 8;
 
 function makeRow(label) {
@@ -25,6 +27,7 @@ function makeRow(label) {
         font: "12px Arial, sans-serif",
         color: "#787878",
         overflow: "hidden",
+        // The row is a display, never a control: clicks belong to the node below it.
         pointerEvents: "none",
         userSelect: "none",
     });
@@ -47,18 +50,22 @@ function makeRow(label) {
 }
 
 /**
- * Node'a "label ......... value" bicimli salt okunur bir satir ekler.
+ * Adds a read-only "label ......... value" row to the node.
  * @returns {{ set: (v: unknown) => void }}
  */
 export function addReadonlyRow(node, name, label) {
     const { row, valueEl } = makeRow(label);
 
+    // Fallback for frontends without addDOMWidget: the value shows, the styling does
+    // not. Better a plain box than a missing indicator.
     if (typeof node.addDOMWidget !== "function") {
         const w = node.addWidget("text", label, "-", () => {}, { serialize: false });
         w.disabled = true;
         return { set: (v) => { w.value = String(v); } };
     }
 
+    // serialize: false keeps the indicator out of the saved workflow; it is derived
+    // from the last run, not user input.
     const w = node.addDOMWidget(name, "bg_readonly_row", row, {
         serialize: false,
         hideOnZoom: false,

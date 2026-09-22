@@ -1,15 +1,15 @@
-"""Prompt Builder — cok kategorili prompt olusturucu.
+"""Prompt Builder — multi-category prompt assembler.
 
-Kategoriler node'un girdisi degil, gizli bir JSON widget'inda (`categories`)
-saklanan veridir. Duzenleme grafik uzerinde degil, `Open Prompt Builder`
-butonuyla acilan modalda yapilir.
+Categories are not node inputs: they are data stored in a hidden JSON widget
+(`categories`) and edited in the modal behind the `Open Prompt Builder` button,
+so the node stays small no matter how many lists it holds.
 
-Ciktilar: `all` (birlesmis prompt) + kategori basina bir STRING cikisi. Kategori
-ciktilari sinif seviyesinde MAX_CAT_OUT kadar on-tanimlidir; frontend gorunur
-slot sayisini kategori sayisina esitler ve etiketler.
+Outputs: `all` (the joined prompt) plus one STRING per category. The category
+outputs are declared up to MAX_CAT_OUT at class level; the frontend shows as many
+slots as there are categories and labels them.
 
-Satir bolme, per-kategori index yurutme ve reset paylasilan `lib/picker.py`'de;
-kategori birlestirme `lib/promptbuild.py`'dedir.
+Line splitting, per-category index walking and reset live in `lib/picker.py`;
+the joining itself is in `lib/promptbuild.py`.
 """
 
 from aiohttp import web
@@ -17,16 +17,19 @@ from server import PromptServer
 
 from .lib import picker, promptbuild
 
-# Kategori basina cikis slotu ust siniri. RETURN_TYPES sabit oldugu icin
-# on-tanimlanir; kullanilmayanlar "" doner ve frontend'de gizlenir.
-# Artirilabilir, DUSURULMEZ (kayitli workflow'lardaki kablolar bozulur).
+# Upper bound on category output slots. RETURN_TYPES is fixed at class level, so the
+# slots are declared ahead of time; unused ones return "" and stay hidden in the UI.
+# This may be raised, NEVER lowered: saved workflows would lose their wires.
 MAX_CAT_OUT = 32
 
 
 @PromptServer.instance.routes.post("/bulentgercek/prompt_builder/reset")
 async def _prompt_builder_reset(request):
-    """Yeni bir Queue tiklamasi basladiginda bu node'lara ait tum kategori
-    sayaclarini (unique_id: on-ekli anahtarlar) temizler."""
+    """Clear every category counter belonging to the given nodes.
+
+    Same contract as the List Pick route: the keys are "unique_id:" prefixed, and
+    reset_ids takes the prefixed sub-keys with them.
+    """
     try:
         data = await request.json()
     except Exception:
@@ -53,6 +56,7 @@ class PromptBuilder:
             "hidden": {"unique_id": "UNIQUE_ID"},
         }
 
+    # One STRING for `all`, then one per possible category.
     RETURN_TYPES = ("STRING",) * (MAX_CAT_OUT + 1)
     RETURN_NAMES = ("all",) + tuple("cat_%d" % i for i in range(1, MAX_CAT_OUT + 1))
     FUNCTION = "build"
@@ -61,9 +65,9 @@ class PromptBuilder:
 
     @classmethod
     def IS_CHANGED(cls, delimiter, categories, unique_id=None):
-        # Tum kategoriler 'fixed' ise sonuc deterministik -> cache calissin.
-        # Herhangi biri increment/decrement/randomize ise her run yeniden hesapla
-        # (disabled olsa bile — kendi cikisi ve sayaci ilerlemeli).
+        # Caching is only safe while every category is `fixed`. A single walking or
+        # random category has to re-run, even a disabled one: its own output still
+        # emits and its counter still has to move.
         cats = promptbuild.parse_categories(categories)
         non_fixed = any(
             isinstance(c, dict) and c.get("mode", "fixed") != "fixed"
@@ -78,6 +82,8 @@ class PromptBuilder:
         final, ui_cats, cat_values = promptbuild.build_prompt(
             cats, delimiter, unique_id, picker._STATE
         )
+        # The tuple has to match RETURN_TYPES exactly, so extra categories are dropped
+        # and missing ones are padded with empty strings.
         outs = [final] + cat_values[:MAX_CAT_OUT]
         outs += [""] * (MAX_CAT_OUT + 1 - len(outs))
         return {

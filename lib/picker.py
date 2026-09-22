@@ -1,22 +1,24 @@
-"""List secim cekirdegi — saf Python, ComfyUI'siz. List Pick ve Prompt Builder ortak.
+"""Line picking shared by List Pick and Prompt Builder. Pure Python, no ComfyUI imports.
 
-- split_lines  : metni satirlara boler, istege bagli bos satirlari atar.
-- resolve_index: mod + mevcut state -> (index, yeni state). Global tutmaz, test edilebilir.
-- _STATE / reset_ids: increment/decrement sayaclarinin paylasilan deposu. Anahtar
-  List Pick'te "unique_id", Prompt Builder'da "unique_id:kategori_id" biciminde.
+split_lines   : text -> lines, optionally dropping blank ones.
+resolve_index : (mode, state) -> (index, new state).
+_STATE        : shared counter store. Keys are "unique_id" for List Pick and
+                "unique_id:category_id" for Prompt Builder.
 """
 
 import random
 
 MODES = ["fixed", "increment", "decrement", "randomize"]
 
-# paylasilan sayac deposu: anahtar -> {"lo": int, "count": int, "next": int}
+# The counter store lives for as long as the ComfyUI process does: restarting the
+# server resets every walk. Values are {"lo": int, "count": int, "next": int}.
 _STATE = {}
 
 
 def split_lines(text, skip_empty=True):
     if not isinstance(text, str) or text == "":
         return []
+    # Normalise CRLF and CR so a list pasted from anywhere splits the same way.
     lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
     if skip_empty:
         lines = [ln for ln in lines if ln.strip() != ""]
@@ -24,13 +26,13 @@ def split_lines(text, skip_empty=True):
 
 
 def resolve_index(mode, state, lo, count, rng=random):
-    """Bir sonraki index'i ve guncellenmis state'i dondurur.
+    """Return the index to use now and the state to store for the next run.
 
-    state : {"lo","count","next"} veya None. lo/count degistiyse ya da state yoksa
-            sayac lo'ya sifirlanir.
-    count : >= 1 varsayilir (bos liste bu fonksiyon cagrilmadan once elenir).
-    Donen : (index, new_state) — cagiran new_state'i kendi deposuna yazar.
+    state : {"lo","count","next"} or None.
+    count : assumed >= 1; an empty list is handled before this is called.
     """
+    # The walk restarts whenever its ground truth moved: a different starting point
+    # or a different number of usable lines makes the stored "next" meaningless.
     if state is None or state.get("lo") != lo or state.get("count") != count:
         state = {"lo": lo, "count": count, "next": lo}
 
@@ -42,8 +44,10 @@ def resolve_index(mode, state, lo, count, rng=random):
         state["next"] = lo
     else:  # increment / decrement
         index = state["next"]
+        # A stored index can fall out of range if the list shrank between runs.
         if index < 0 or index > count - 1:
             index = lo
+        # Modulo wraps the walk around the whole list, never a sub-range from lo.
         if mode == "increment":
             state["next"] = (index + 1) % count
         else:  # decrement
@@ -53,8 +57,12 @@ def resolve_index(mode, state, lo, count, rng=random):
 
 
 def reset_ids(ids):
-    """Verilen anahtarlarin — ve "anahtar:" on-ekli tum alt anahtarlarin —
-    sayacini siler. ids bos/None ise tum depo temizlenir (eski davranis)."""
+    """Drop the counters for the given keys and for every "key:" prefixed sub-key.
+
+    An empty or missing id list clears the whole store.
+    """
+    # Prompt Builder keys its categories as "<node id>:<category id>", so resetting a
+    # node has to take its categories with it.
     if not ids:
         _STATE.clear()
         return
@@ -62,5 +70,6 @@ def reset_ids(ids):
         i = str(raw)
         _STATE.pop(i, None)
         prefix = i + ":"
+        # Materialise the key list first: the loop deletes from the dict it reads.
         for k in [key for key in _STATE if key.startswith(prefix)]:
             _STATE.pop(k, None)

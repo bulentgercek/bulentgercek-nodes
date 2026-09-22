@@ -1,9 +1,10 @@
-/* Satir numarasi gutter'i.
+/* Line-number gutter.
  *
- * Textarea'nin soluna absolute konumlu, salt okunur bir div koyar. Metne
- * HICBIR SEY eklemez; prompt fragment'lerinin birebir kalmasi zorunlu.
- * Numaralar backend'in gordugu index'tir: bos satir numara almaz, soluk "."
- * gorur; sarma yapan satirin devam satirlari bos kalir; aktif index sari.
+ * Puts an absolutely positioned, read-only div to the left of a textarea. It adds
+ * NOTHING to the text: prompt fragments have to stay byte-for-byte what the user
+ * typed. Numbers are the index the backend sees, so a skipped blank line gets a
+ * faint dot instead of a number, wrapped continuation lines get blank space, and
+ * the active index is highlighted.
  */
 
 import { splitLines } from "./text.js";
@@ -16,13 +17,15 @@ const COL_ACTIVE = "#e2b04a";
 
 /**
  * @param {HTMLTextAreaElement} textarea
- * @param {() => number} getActive  vurgulanacak index; yoksa -1 dondur
- * @param {() => boolean} [getSkip] bos satir atlaniyor mu (varsayilan: her zaman)
+ * @param {() => number} getActive  index to highlight; return -1 for none
+ * @param {() => boolean} [getSkip] whether blank lines are skipped (default: always)
  * @returns {{ render: () => void, element: HTMLElement, destroy: () => void } | null}
  */
 export function attachGutter(textarea, getActive, getSkip = () => true) {
     const parent = textarea.parentElement;
     if (!parent) return null;
+    // The gutter positions itself against the parent, which therefore must not be
+    // static. Touching the textarea's own layout would fight ComfyUI's sizing.
     if (getComputedStyle(parent).position === "static") {
         parent.style.position = "relative";
     }
@@ -42,7 +45,8 @@ export function attachGutter(textarea, getActive, getSkip = () => true) {
     });
     parent.appendChild(gutter);
 
-    // sarma yuksekligini olcmek icin gizli ayna
+    // Hidden twin of the textarea, used to measure how tall each line renders once
+    // it wraps. There is no API for "height of line N", so it gets measured.
     const mirror = document.createElement("div");
     Object.assign(mirror.style, {
         position: "absolute",
@@ -64,7 +68,8 @@ export function attachGutter(textarea, getActive, getSkip = () => true) {
         const active = getActive();
         const lines = splitLines(textarea.value || "");
 
-        // en buyuk index'e gore genislik
+        // Width follows the largest index, so a 100-line list does not clip its own
+        // numbers and a short one does not waste space.
         let counted = 0;
         for (const l of lines) {
             if (!(skip && l.trim() === "")) counted++;
@@ -72,12 +77,16 @@ export function attachGutter(textarea, getActive, getSkip = () => true) {
         const digits = String(Math.max(0, counted - 1)).length;
         const gw = Math.max(GUTTER_MIN_W, 8 + digits * 7);
 
+        // Padding is only written when it actually changes: assigning it on every
+        // render costs a layout pass per keystroke.
         const pad = gw + GUTTER_GAP;
         if (pad !== lastPad) {
             textarea.style.paddingLeft = pad + "px";
             lastPad = pad;
         }
 
+        // Both the mirror and the gutter must inherit the textarea's typography, or
+        // the measured heights describe a different font than the one on screen.
         const cs = getComputedStyle(textarea);
         const padL = parseFloat(cs.paddingLeft) || 0;
         const padR = parseFloat(cs.paddingRight) || 0;
@@ -99,6 +108,7 @@ export function attachGutter(textarea, getActive, getSkip = () => true) {
         const probes = [];
         for (const l of lines) {
             const d = document.createElement("div");
+            // A zero-width space keeps an empty line one line tall instead of zero.
             d.textContent = l === "" ? "\u200b" : l;
             mirror.appendChild(d);
             probes.push(d);
@@ -115,6 +125,8 @@ export function attachGutter(textarea, getActive, getSkip = () => true) {
             row.style.overflow = "hidden";
             row.style.paddingRight = "2px";
 
+            // Blank lines are invisible to the backend, so they get a dot rather than
+            // a number: the count keeps running underneath them.
             if (skip && isEmpty) {
                 row.textContent = "\u00b7";
                 row.style.color = COL_EMPTY;
@@ -135,6 +147,8 @@ export function attachGutter(textarea, getActive, getSkip = () => true) {
     };
     textarea.addEventListener("scroll", onScroll);
 
+    // Width changes rewrap the text and move every number. Height changes do not, so
+    // the observer filters on width to avoid re-rendering while the node is resized.
     let ro = null;
     if (window.ResizeObserver) {
         let lastW = -1;
@@ -147,6 +161,8 @@ export function attachGutter(textarea, getActive, getSkip = () => true) {
         ro.observe(textarea);
     }
 
+    // Callers must be able to unhook: a Vue re-render can drop our nodes from the
+    // DOM, and the caller then rebuilds the gutter from scratch.
     const destroy = () => {
         textarea.removeEventListener("scroll", onScroll);
         ro?.disconnect();

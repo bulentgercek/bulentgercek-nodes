@@ -1,11 +1,11 @@
-/* Salt okunur, kaydirilabilir zengin metin gosterge widget'i (DOM widget).
+/* Read-only, scrollable rich-text display widget (DOM widget).
  *
- * List Pick'teki tek-satir `readonly_row` yerine uzun onizlemeler icin
- * (Prompt Builder'in `Last Prompt`'u gibi). Rozet/span render edebilmek icin
- * <textarea> degil <div> kullanir. `getMaxHeight` VERILMEZ — node yeniden
- * boyutlandirilinca widget bosalan dikey alani doldurur. Sag ustte hover'da
- * beliren bir kopyala butonu var (her zaman DUZ metni kopyalar). Node
- * suruklemesiyle catismasin diye pointer/wheel event'leri durdurulur.
+ * The multi-line counterpart of `readonly_row`, for long previews such as Prompt
+ * Builder's `Last Prompt`. It renders into a <div> rather than a <textarea> so it
+ * can hold badge spans. It deliberately declares NO getMaxHeight: the widget then
+ * takes the vertical space freed when the node is resized. A copy button appears on
+ * hover in the top-right and always copies the plain text. Pointer and wheel events
+ * are stopped so scrolling and selecting never drag the node underneath.
  */
 
 const COPY_SVG =
@@ -57,9 +57,13 @@ export function addReadonlyText(node, name, label, opts = {}) {
         userSelect: "text",
         cursor: "text",
     });
+    // Without these the canvas treats a drag inside the preview as a node drag and a
+    // wheel over it as a canvas zoom.
     view.addEventListener("pointerdown", (e) => e.stopPropagation());
     view.addEventListener("wheel", (e) => e.stopPropagation(), { passive: true });
 
+    // The plain text is kept next to the rendered nodes: what is on screen may carry
+    // badges, but copying has to yield the prompt alone.
     let plain = "";
 
     const copyBtn = document.createElement("button");
@@ -90,14 +94,17 @@ export function addReadonlyText(node, name, label, opts = {}) {
         try {
             await navigator.clipboard.writeText(plain);
         } catch (err) {
+            // The clipboard API needs a secure context, which a plain-http ComfyUI is
+            // not. The hidden-textarea route still works there.
             const t = document.createElement("textarea");
             t.value = plain;
             Object.assign(t.style, { position: "fixed", top: "0", left: "0", opacity: "0" });
             document.body.appendChild(t);
             t.select();
-            try { document.execCommand("copy"); } catch (e2) { /* yut */ }
+            try { document.execCommand("copy"); } catch (e2) { /* ignore */ }
             t.remove();
         }
+        // Swap to a tick for a moment: without it there is no sign the click landed.
         copyBtn.innerHTML = CHECK_SVG;
         copyBtn.style.color = "#7ec87e";
         clearTimeout(copyBtn.__t);
@@ -117,6 +124,8 @@ export function addReadonlyText(node, name, label, opts = {}) {
         plain = String(v ?? "");
         view.textContent = plain;
     };
+    // Segments are pre-built elements (badge + text); the caller also hands over the
+    // plain string, since it cannot be reconstructed from the rendered nodes.
     const setSegments = (nodes, p) => {
         plain = String(p ?? "");
         const arr = Array.isArray(nodes) ? nodes : [nodes];
@@ -128,6 +137,7 @@ export function addReadonlyText(node, name, label, opts = {}) {
         }
     };
 
+    // Fallback for frontends without addDOMWidget: plain text only, no badges.
     if (typeof node.addDOMWidget !== "function") {
         const w = node.addWidget("text", label, "", () => {}, { serialize: false });
         w.disabled = true;

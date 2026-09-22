@@ -1,9 +1,9 @@
-/* Prompt Builder — global (tarayici bazli) ayarlar.
+/* Prompt Builder — browser-wide settings.
  *
- * localStorage'da tek anahtarda tutulur. Workflow'a YAZILMAZ; kullanicinin
- * calisma aliskanligi (default kategori isimleri, yeni node delimiter tohumu,
- * modal pencere duzeni). Per-node veri (kategoriler, o node'un delimiter'i)
- * ayri: gizli widget'larda, workflow JSON'inda.
+ * Kept under a single localStorage key. These are NOT written to the workflow: they
+ * describe how this user likes to work (default category names, the seed delimiter
+ * for new nodes, the modal layout). Per-node data — the categories and that node's
+ * delimiter — lives in hidden widgets inside the workflow JSON instead.
  */
 
 const KEY = "bulentgercek.prompt_builder.settings";
@@ -12,38 +12,38 @@ export const DEFAULTS = {
     defaultCategories: "Base List, Camera List, Pose List, Clothing List, Environment List",
     defaultDelimiter: ". ",
     windowConfig: "small",   // "small" | "wide" | "three" | "four" | "twocol"
-    uiSize: "small",         // "small" | "medium" | "large" — modal geneli
-    listFontSize: "small",   // "small" | "medium" | "large" — kategori satir listeleri
-    compactRows: "off",      // "off" | "on" — kart textarea'sina max-height + ic scroll
-    fitTextMaster: "on",     // "off" | "on" — toplu Fit Text. ON: tum cat.fit=true +
-                             // per-kart butonlar kilitli. Toggle On/Off tumune yazar.
+    uiSize: "small",         // "small" | "medium" | "large" — modal chrome
+    listFontSize: "small",   // "small" | "medium" | "large" — category line lists
+    compactRows: "off",      // "off" | "on" — max-height plus inner scroll on cards
+    fitTextMaster: "on",     // "off" | "on" — bulk Fit Text. ON: every cat.fit=true and
+                             // the per-card buttons are locked. Toggling writes to all.
 };
 
-// Compact rows: acikken kart listeleri belli bir yuksekligi gecmez (ic scroll);
-// grid satirlari kabaca esitlenir, dikey bosluklar kuculur. Layout degismez.
+// Compact rows: card lists stop growing past a set height and scroll inside instead,
+// which roughly levels the grid rows. The column layout itself does not change.
 export const COMPACT_OPTS = {
     off: { label: "Off" },
     on:  { label: "On" },
 };
 
-// Modal geneli taban font boyutu (header, butonlar, etiketler, kart kontrolleri).
-// Cocuklar em/inherit ile buna gore olceklenir.
+// Base font size for the modal chrome (header, buttons, labels, card controls).
+// Children scale from it through em/inherit.
 export const UI_SIZES = {
     small:  { label: "Small",  px: 13 },
     medium: { label: "Medium", px: 15 },
     large:  { label: "Large",  px: 17 },
 };
 
-// Kategori satir listeleri (+ gutter, debug satiri) font boyutu.
+// Font size for the category line lists, their gutters and the debug readout.
 export const LIST_SIZES = {
     small:  { label: "Small",  px: 12 },
     medium: { label: "Medium", px: 14 },
     large:  { label: "Large",  px: 16 },
 };
 
-// Modal her zaman tum ekrani (simetrik kenar bosluguyla) kaplar; bu ayar
-// yalnizca kart izgarasinin kolon sayisini belirler. Hepsi dar ekranda
-// tek kolona duser (float).
+// The modal always fills the screen with even margins; this setting only decides how
+// many columns the card grid uses. Every mode collapses to fewer columns on a narrow
+// window.
 export const WINDOW_CONFIGS = {
     small:  { label: "1 Column",     mode: 1 },
     wide:   { label: "2 Columns",    mode: 2 },
@@ -53,6 +53,8 @@ export const WINDOW_CONFIGS = {
 };
 
 export function loadSettings() {
+    // Stored settings are merged over the defaults, so a key added in a later version
+    // is filled in for users who already have a saved object.
     try {
         const raw = localStorage.getItem(KEY);
         if (!raw) return { ...DEFAULTS };
@@ -68,7 +70,7 @@ export function saveSettings(patch) {
     try {
         localStorage.setItem(KEY, JSON.stringify(next));
     } catch (e) {
-        /* localStorage kapali olabilir — sessizce gec */
+        /* localStorage may be disabled or full; settings then last for this session only */
     }
     return next;
 }

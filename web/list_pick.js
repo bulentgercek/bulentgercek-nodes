@@ -1,3 +1,11 @@
+/* List Pick — node face.
+ *
+ * The server decides which line is picked; this file only previews that decision and
+ * shows the result. Two read-only rows carry the last index and the line count, the
+ * gutter numbers the list, and a Queue hook makes both snap back to previewing
+ * start_index whenever a new queue action starts.
+ */
+
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
 import { lineCount } from "./lib/text.js";
@@ -18,16 +26,19 @@ app.registerExtension({
     name: "bulentgercek.list_pick",
 
     async setup() {
+        // The hooks below are global, so they are installed once no matter how many
+        // List Pick nodes the graph holds.
         if (app.__lpQueueHooked) return;
         app.__lpQueueHooked = true;
 
         const origQueuePrompt = app.queuePrompt.bind(app);
-        // origQueuePrompt'tan once `await` yok — araya giren gecikme
-        // "'execution_start' fired before prompt was made" uyarisini tetikliyor.
+        // The reset call is fired but never awaited before handing over to the original
+        // queuePrompt: any delay inserted here triggers ComfyUI's
+        // "'execution_start' fired before prompt was made" warning.
         app.queuePrompt = (...args) => {
             const nodes = (app.graph?._nodes || []).filter((n) => n.comfyClass === NODE);
             if (nodes.length) {
-                for (const n of nodes) n.__lpReset?.(); // gutter aninda lo'ya doner
+                for (const n of nodes) n.__lpReset?.(); // gutter returns to lo at once
                 api.fetchApi("/bulentgercek/list_pick/reset", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
@@ -37,8 +48,8 @@ app.registerExtension({
             return origQueuePrompt(...args);
         };
 
-        // Queue tamamen bosaldiginda (kuyrukta ve calisan is kalmadiginda)
-        // gutter'i son gerceklesen sonuc yerine yine ayarlanan degerlere dondur.
+        // When the queue drains completely, the gutter goes back to previewing the
+        // configured values instead of staying on the last realised result.
         let lastQueueRemaining = 0;
         api.addEventListener("status", (e) => {
             const remaining = e?.detail?.exec_info?.queue_remaining ?? 0;
@@ -65,11 +76,15 @@ app.registerExtension({
         const cntD = addReadonlyRow(node, "lp_count", "count");
 
         let activeIndex = -1;
-        let previewMode = true; // true: activeIndex bir sonraki pick() tahmini; false: gercek sonuc
+        // previewMode true: activeIndex is a guess at the next pick(). false: it is the
+        // index the server actually returned.
+        let previewMode = true;
         let stateLo = null;
         let stateMax = null;
         let gutter = null;
 
+        // The DOM widgets are added after ComfyUI computed the node's size, so the node
+        // has to grow to fit them.
         const fitSize = () => {
             const min = node.computeSize();
             node.setSize([
@@ -90,6 +105,8 @@ app.registerExtension({
             const n = lineCount(text, skip);
             const max = n > 0 ? n - 1 : 0;
 
+            // start_index is bounded by the list itself, so the spinner cannot be pushed
+            // past the last line.
             idxW.options = idxW.options || {};
             idxW.options.min = 0;
             idxW.options.max = max;
@@ -109,14 +126,14 @@ app.registerExtension({
                 activeIndex = -1;
                 previewMode = true;
             } else if (mode === "fixed") {
-                // fixed her zaman deterministik: sonuc = lo, run'a gerek yok
+                // fixed is deterministic: the result is lo, no run needed to know it.
                 resD.set(lo);
                 activeIndex = lo;
                 previewMode = true;
                 stateLo = lo;
                 stateMax = max;
             } else if (mode === "randomize") {
-                // gercek sonuc gelene kadar bilinemez
+                // Unknowable until a real result arrives, so nothing is highlighted.
                 if (previewMode) {
                     resD.set("-");
                     activeIndex = -1;
@@ -126,9 +143,9 @@ app.registerExtension({
                     stateMax = max;
                 }
             } else {
-                // increment / decrement: backend'in reset kosuluyla ayni mantik —
-                // lo/count degistiyse veya henuz gercek sonuc yoksa bir sonraki
-                // pick() kesin olarak lo'yu secer (bkz. list_pick.py reset kosulu).
+                // increment / decrement: same reasoning as the server's reset condition.
+                // If lo or the line count moved, or no real result has arrived yet, the
+                // next pick() is certain to return lo.
                 if (previewMode || loChanged) {
                     resD.set(lo);
                     activeIndex = lo;
@@ -142,10 +159,9 @@ app.registerExtension({
             node.setDirtyCanvas?.(true, true);
         };
 
-        // ComfyUI'nin Vue tabanli cok-satirli widget'i (listW.inputEl) node
-        // yuklendikten sonra asenkron olusabiliyor; ayrica bir Vue yeniden
-        // render'i ekledigimiz gutter div'ini DOM'dan atabiliyor. Bu yuzden:
-        // inputEl gelene kadar rAF ile yokla, kopmussa yeniden bagla.
+        // ComfyUI's Vue-based multiline widget creates its textarea (listW.inputEl)
+        // asynchronously after the node is built, and a later Vue re-render can drop the
+        // gutter div out of the DOM. So: poll for inputEl, and rebuild if it detaches.
         const attachGutterNow = () => {
             if (gutter) {
                 if (gutter.element?.isConnected) return true;
@@ -154,6 +170,8 @@ app.registerExtension({
             }
             const el = listW.inputEl;
             if (!el) return false;
+            // The listeners are marked on the element itself: the gutter may be rebuilt
+            // many times over the same textarea, the input hooks only once.
             if (!el.__lpHooked) {
                 el.__lpHooked = true;
                 el.addEventListener("input", sync);
@@ -167,7 +185,7 @@ app.registerExtension({
             if (!gutter) return false;
             gutter.render();
             sync();
-            // gec gelen layout icin birkac takip render'i
+            // Follow-up renders for layout that settles a frame or two later.
             requestAnimationFrame(() => gutter?.render());
             setTimeout(() => gutter?.render(), 150);
             return true;
@@ -182,9 +200,12 @@ app.registerExtension({
                 if (attachGutterNow() || tries <= 0) { pollPending = false; return; }
                 requestAnimationFrame(() => tick(tries - 1));
             };
-            tick(180); // ~3 sn boyunca dene, sonra birak (draw yeniden tetikler)
+            // Give up after roughly three seconds; onDrawForeground will try again.
+            tick(180);
         };
 
+        // Widget callbacks are wrapped rather than replaced, so ComfyUI's own handler
+        // still runs and the preview refreshes after it.
         for (const w of [listW, skipW, modeW, idxW]) {
             if (!w) continue;
             const cb = w.callback;
@@ -204,6 +225,7 @@ app.registerExtension({
         node.onConfigure = function (...a) {
             const r = onConf?.apply(this, a);
             ensureGutter();
+            // A zero timeout lets ComfyUI finish restoring the widget values first.
             setTimeout(() => { ensureGutter(); sync(); fitSize(); }, 0);
             return r;
         };
@@ -211,6 +233,8 @@ app.registerExtension({
         const onExec = node.onExecuted;
         node.onExecuted = function (message) {
             const r = onExec?.apply(this, arguments);
+            // This is the real result coming back through the "ui" channel; from here on
+            // the gutter shows what happened rather than what will happen.
             const d = message?.list_pick?.[0];
             if (d) {
                 activeIndex = d.index;
@@ -227,6 +251,9 @@ app.registerExtension({
 
         const onDraw = node.onDrawForeground;
         node.onDrawForeground = function (...a) {
+            // Draw is the only hook that fires reliably after every kind of change, so it
+            // doubles as a watchdog. The previous values are cached to keep it cheap:
+            // this runs on every frame the node is visible.
             if (!gutter || !gutter.element?.isConnected) ensureGutter();
             const curSkip = skipW ? skipW.value : null;
             const curMode = modeW ? modeW.value : null;

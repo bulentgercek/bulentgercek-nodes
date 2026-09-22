@@ -1,8 +1,13 @@
+"""String Line Count — counts the lines in a string."""
+
+
 class StringLineCount:
     @classmethod
     def INPUT_TYPES(cls):
         return {
             "required": {
+                # forceInput keeps this a wired socket rather than a text box: the node
+                # is meant to measure another node's output, not typed-in text.
                 "text": ("STRING", {"forceInput": True, "multiline": True}),
                 "skip_empty": ("BOOLEAN", {"default": True}),
             }
@@ -16,6 +21,8 @@ class StringLineCount:
 
     def count(self, text, skip_empty):
         lines = text.splitlines()
+        # Whitespace-only lines count as empty, matching how the picking core treats
+        # them, so this node and List Pick's `count` agree on the same list.
         if skip_empty:
             lines = [ln for ln in lines if ln.strip()]
         return (len(lines),)

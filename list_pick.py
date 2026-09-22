@@ -1,13 +1,12 @@
-"""List Pick — multiline string list'ten satir secer.
+"""List Pick — picks one line from a multiline string list.
 
-start_index sadece baslangic noktasidir, alt sinir DEGILDIR.
-increment/decrement tum listeyi (0..count-1) dairesel gezer;
-count-1'i gecince 0'a, 0'in altina inince count-1'e sarar.
-control_after_generation: fixed / increment / decrement / randomize.
-Uretilen index backend'de hesaplanir ve UI'a geri gonderilir.
+start_index is a starting point, NOT a lower bound: increment and decrement walk the
+whole list (0..count-1) circularly, wrapping past the last line back to 0 and below 0
+back to the last line. control_after_generation: fixed / increment / decrement /
+randomize. The index is resolved on the server and sent back to the UI.
 
-Cekirdek mantik (satir bolme, index yurutme, per-key state, reset)
-paylasilan `lib/picker.py`'dedir; Prompt Builder ayni modulu kullanir.
+The picking core (line splitting, index walk, per-key state, reset) lives in
+`lib/picker.py`; Prompt Builder uses the same module.
 """
 
 from aiohttp import web
@@ -19,11 +18,14 @@ MAX_INT = 0xFFFFFFFF
 MODES = picker.MODES
 
 
+# Registered on ComfyUI's own aiohttp server, so the pack needs no server of its own.
 @PromptServer.instance.routes.post("/bulentgercek/list_pick/reset")
 async def _list_pick_reset(request):
-    """Yeni bir Queue tiklamasi basladiginda ilgili node'larin gizli
-    increment/decrement sayacini temizler; sonraki pick() cagrisinda
-    sayac start_index'e sifirlanir."""
+    """Clear the hidden increment/decrement counters for the given nodes.
+
+    Called by the frontend when a new Queue action starts; the next pick() then
+    restarts from start_index.
+    """
     try:
         data = await request.json()
     except Exception:
@@ -70,7 +72,9 @@ class ListPick:
     @classmethod
     def IS_CHANGED(cls, string_list, start_index, control_after_generation,
                    skip_empty=True, strip=True, unique_id=None):
-        # fixed'de cache calissin; digerlerinde her run yeniden hesaplansin.
+        # `fixed` is deterministic, so a stable key lets ComfyUI reuse the cached
+        # result. Every other mode must run again on every queue, which is what the
+        # NaN return means: NaN never equals the previous value.
         if control_after_generation == "fixed":
             return "fixed:%d:%d" % (int(start_index), hash(string_list))
         return float("nan")
@@ -81,12 +85,16 @@ class ListPick:
         lines = picker.split_lines(string_list, skip_empty)
         count = len(lines)
 
+        # An empty list must not stall the graph: it reports index -1 to the UI and
+        # hands the downstream nodes an empty string.
         if count == 0:
             return {
                 "ui": {"list_pick": [{"index": -1, "count": 0}]},
                 "result": ("", 0, 0),
             }
 
+        # start_index is clamped rather than rejected, so shrinking the list below the
+        # configured index keeps the node working.
         lo = max(0, min(int(start_index), count - 1))
         key = str(unique_id)
 
@@ -99,6 +107,8 @@ class ListPick:
         if strip:
             value = value.strip()
 
+        # "ui" reaches the node's onExecuted handler in the browser; "result" travels
+        # down the graph. The gutter needs the index, the graph does not.
         return {
             "ui": {"list_pick": [{"index": index, "count": count}]},
             "result": (value, index, count),
