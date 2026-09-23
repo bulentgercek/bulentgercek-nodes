@@ -59,12 +59,15 @@ def resolve_index(mode, state, lo, count, rng=random):
 def reset_ids(ids):
     """Drop the counters for the given keys and for every "key:" prefixed sub-key.
 
-    An empty or missing id list clears the whole store.
+    An empty or missing id list resets nothing.
     """
     # Prompt Builder keys its categories as "<node id>:<category id>", so resetting a
     # node has to take its categories with it.
+    #
+    # A request that names no node resets nothing: the reset route is open to anything
+    # that can reach the ComfyUI server, and a body-less call used to wipe every
+    # counter in the process, including nodes the caller knows nothing about.
     if not ids:
-        _STATE.clear()
         return
     for raw in ids:
         i = str(raw)

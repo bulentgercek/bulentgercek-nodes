@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.1] - 2026-09-23
+### Fixed
+- The List Pick and Prompt Builder reset routes no longer clear every counter when a request names no nodes. A POST without a body, or with an empty `ids` list, used to reset the counters of the whole graph.
+
+### Changed
+- In `fixed` mode, List Pick and Prompt Builder rely on ComfyUI's own cache key instead of hashing their inputs. Caching behaves the same: unchanged inputs are reused, changed inputs run again.
+
 ## [1.2.0] - 2026-09-23
 ### Added
 - Startup line in the ComfyUI log: the pack reports how many nodes it loaded, with the author signature.

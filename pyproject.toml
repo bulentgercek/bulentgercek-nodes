@@ -1,7 +1,7 @@
 [project]
 name = "bulentgercek-nodes"
 description = "Prompt Builder, List Pick and String Line Count: text and list utility nodes for building and iterating prompts."
-version = "1.2.0"
+version = "1.2.1"
 authors = [{ name = "Bulent Gercek" }]
 license = { file = "LICENSE" }
 dependencies = []

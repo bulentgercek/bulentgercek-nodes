@@ -75,7 +75,9 @@ class PromptBuilder:
         )
         if non_fixed:
             return float("nan")
-        return "fixed:%d" % hash((delimiter, categories))
+        # Both widgets are already in ComfyUI's cache key, so a stable value is all the
+        # caching needs here.
+        return "fixed"
 
     def build(self, delimiter, categories, unique_id=None):
         cats = promptbuild.parse_categories(categories)

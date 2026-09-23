@@ -72,11 +72,12 @@ class ListPick:
     @classmethod
     def IS_CHANGED(cls, string_list, start_index, control_after_generation,
                    skip_empty=True, strip=True, unique_id=None):
-        # `fixed` is deterministic, so a stable key lets ComfyUI reuse the cached
-        # result. Every other mode must run again on every queue, which is what the
-        # NaN return means: NaN never equals the previous value.
+        # ComfyUI already keys its cache on every widget value and on the node id, so
+        # this method answers one question only: may the previous result be reused?
+        # `fixed` is deterministic, so a stable value says yes. Every other mode has to
+        # run again, which is what NaN means: NaN never equals the previous value.
         if control_after_generation == "fixed":
-            return "fixed:%d:%d" % (int(start_index), hash(string_list))
+            return "fixed"
         return float("nan")
 
     def pick(self, string_list, start_index, control_after_generation,
